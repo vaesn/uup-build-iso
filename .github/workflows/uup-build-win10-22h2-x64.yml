@@ -1,0 +1,115 @@
+name: uup-build-win10-22h2-pro-x64
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "21 16 14,29 * *"
+permissions:
+  contents: write
+  actions: write
+env:
+  VER: "win10-22h2"
+  OUT_PATH: 'D:\dist'
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+jobs:
+  uup-build-win10-22h2-x64:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: 1. Build ISO from UUP dump package
+        id: build_windows
+        working-directory: .
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl -L -o oscdimg.zip https://github.com/officialmofabs/oscdimg/raw/main/oscdimg-amd64.zip
+          7z x oscdimg.zip -o"oscdimg" -y
+
+          $script = Join-Path $env:GITHUB_WORKSPACE 'uup-get-iso.ps1'
+          $xml    = Join-Path $env:GITHUB_WORKSPACE 'autounattend.xml'
+          Write-Host "VER=$env:VER | OUT=$env:OUT_PATH | script=$script | xml=$xml"
+
+          $pwshArgs = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', $script,
+            $env:VER, $env:OUT_PATH,
+            '-architecture', 'x64',
+            '-edition', 'pro',
+            '-lang', 'zh-cn',
+            '-esd', '-netfx3',
+            '-autounattend', $xml
+          )
+          pwsh @pwshArgs
+
+      - name: 2. Split Archive
+        working-directory: .
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./utils/split-archive.ps1 `
+            -SrcDir       "D:\dist" `
+            -DistDir      "D:\assets_win10" `
+            -RevisionName "win10-22h2-pro-x64"
+
+      - name: 3. Delete Old Release
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release delete "${{ env.REVISION_NAME }}" --cleanup-tag -y || true
+
+      - name: 4. Delete past completed runs of this workflow
+        if: ${{ success() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow "${{ github.workflow }}" \
+            --limit 20 \
+            --json databaseId,status \
+            --jq '.[] | select(.status=="completed") | .databaseId' | while read -r run_id; do
+              if [ -z "$run_id" ]; then continue; fi
+              if [ "$run_id" = "${{ github.run_id }}" ]; then continue; fi
+              gh run delete "$run_id" --repo "${{ github.repository }}" || true
+            done
+
+      - name: 5. Build New Release
+        uses: softprops/action-gh-release@v3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          fail_on_unmatched_files: false
+          overwrite_files: true
+          body: |
+            ## Windows 10 22H2 Pro x64 ${{ env.ISO_REVISION }}
+            - **ARTIFACT**: ${{ env.ISO_NAME }}
+            - **Version**: ${{ env.ISO_REVISION }}
+            - **SHA256**: ${{ env.SHA256 }}
+            - **Language**: zh_CN
+            - **File Size**: ${{ env.ISO_SIZEMB }} ， ${{ env.ISO_SIZEGB }}
+            - **Volume Size**: ${{ env.VOLUME_SIZE }}
+            - **Volume Count**: ${{ env.PART_COUNT }}
+            ---
+            ${{ env.DOWNLOAD_LINKS }}
+            ---
+          tag_name: ${{ env.REVISION_NAME }}
+          name: ${{ env.REVISION_NAME }}-${{ env.ISO_REVISION }}
+          files: |
+            D:\assets_win10\*.7z.0[0-9][0-9]
+            D:\dist\*.json
+            D:\dist\*.txt
+
+      - name: 6. Update README
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./utils/update-readme.ps1 -Marker "uup-win10-22h2-pro-x64"
