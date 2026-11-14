@@ -17,6 +17,9 @@ Use UUP dump to automatically build the latest version of Windows 10/11.
 ### *Windows 10 22H2 PRO x64*
 
 <!-- uup-win10-22h2-pro-x64 -->
+[19045.7850.261111-2319.22H2_RELEASE_SVC_IM_CLIENTPRO_OEMRET_X64FRE_ZH-CN_03e7a059.ISO](https://github.com/vaesn/uup-build-iso/releases/tag/win10-22h2-pro-x64)
+
+(2026-11-14 21:44:18 UTC)
 <!-- /uup-win10-22h2-pro-x64 -->
 
 ## Tools
